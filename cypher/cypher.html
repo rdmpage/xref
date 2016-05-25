@@ -1,0 +1,467 @@
+<html>
+<head>
+</head>
+<body style="font-size:12px;font-family:sans-serif;">
+
+<div>
+<ul id="list">
+</ul>
+</div>
+
+<script src="data.js"></script>
+
+<script>
+
+/*
+doc = {
+   "_id": "http://www.worldcat.org/issn/0075-5036",
+   "_rev": "2-ccbc0c2ec8aa07b9c736e7d3b36b3300",
+   "type": "url",
+   "url": "http://www.worldcat.org/issn/0075-5036",
+   "timestamp": "2016-05-12T16:42:14+00:00",
+   "modified": "2016-05-12T16:42:14+00:00",
+   "content": {
+       "rawcoverage": "v. 1-20, no. 3; 1946-71.",
+       "issnl": "0075-5036",
+       "issn": "0075-5036",
+       "publisher": "Lawrence, University of Kansas",
+       "form": "JB",
+       "title": "University of Kansas publications, Museum of Natural History",
+       "oclcnum": [
+           "476468303",
+           "1327412",
+           "860445668",
+           "612294727",
+           "607917718",
+           "807388086"
+       ],
+       "preceding": [
+       ],
+       "succeeding": [
+           "0075-5028",
+           "0091-7958"
+       ]
+   }
+};
+*/
+
+var debug = true;
+var statements = [];
+
+function add_statement(key, value) {
+  statements.push(key + ':' + "'" + value.replace(/\'/g, "\\'") + "'");
+}
+
+function set_statment(node, key, value) {
+  return " SET " + node + "." + key + "='" + value.replace(/\'/g, "\\'") + "' ";
+}
+
+
+//----------------------------------------------------------------------------------------
+function output_cypher(id, type, cypher, debug) {
+  if (debug) {
+	var node = document.createElement("li"); // Create a <li> node
+	var textnode = document.createTextNode(cypher); // Create a text node
+	node.appendChild(textnode); // Append the text to <li>
+	document.getElementById("list").appendChild(node); // Append <li> to <ul> with id="myList"
+  } else {
+	emit([id, type], cypher);
+  }
+}
+
+
+//----------------------------------------------------------------------------------------
+// output journal, with links to related journals
+function cypher_journal(doc, debug) {
+ 
+  // create journal for first issnl
+  var cypher = "MERGE (issn:identifier {id:'issn:" +  doc.content.issnl + "'})<-[:IDENTIFIER]-(c:container) "; 
+  // title
+  if (doc.content.title) {
+    cypher += set_statment("c", "name", doc.content.title);
+  }
+  output_cypher(doc._id, 'node', cypher, debug);
+  
+  // other ISSN (e.g., electronic)
+  if (doc.content.issnl != doc.content.issn) {
+      	cypher = "MERGE (issn:identifier {id:'issn:" +  doc.content.issn + "'}) "; 
+      	output_cypher(doc._id, 'node', cypher, debug);
+      	
+        cypher = "MATCH (issn1:identifier {id:'issn:" + doc.content.issnl + "'})<-[:IDENTIFIER]-(c:container) "; 
+        cypher += "MATCH (issn2:identifier {id:'issn:" +  doc.content.issn + "'}) "; 
+        cypher += "MERGE (issn2)<-[:IDENTIFIER]-(c) ";
+        cypher += "RETURN issn1, issn2, c ";
+        
+   		output_cypher(doc._id, 'relationship', cypher, debug);        
+  }
+
+  // relationships (preceding and succeeding journals)
+  if (doc.content.preceding) {
+    for (var i in doc.content.preceding) {
+      // ensure other journal exists 
+      cypher = "MERGE (issn:identifier {id:'issn:" +  doc.content.preceding[i] + "'})<-[:IDENTIFIER]-(preceding:container) "; 
+      output_cypher(doc._id, 'node', cypher, debug);      
+      
+      // link to this journal
+      cypher = "MATCH (issn1:identifier {id:'issn:" + doc.content.issnl + "'})<-[:IDENTIFIER]-(c:container) "; 
+      cypher += "MATCH (issn2:identifier {id:'issn:" +  doc.content.preceding[i] + "'})<-[:IDENTIFIER]-(preceding:container) "; 
+      cypher += "MERGE (preceding)-[:SUCCEEDED_BY]->(c) ";
+      cypher += "RETURN issn1, issn2, c, preceding";
+      output_cypher(doc._id, 'relationship', cypher, debug);       
+    }
+  }
+
+  if (doc.content.succeeding) {
+    for (var i in doc.content.succeeding) {
+      // ensure other journal exists 
+      cypher = "MERGE (issn:identifier {id:'issn:" +  doc.content.succeeding[i] + "'})<-[:IDENTIFIER]-(succeeding:container) "; 
+      output_cypher(doc._id, 'node', cypher, debug);      
+      
+      // link to this journal
+      cypher = "MATCH (issn1:identifier {id:'issn:" + doc.content.issnl + "'})<-[:IDENTIFIER]-(c:container) "; 
+      cypher += "MATCH (issn2:identifier {id:'issn:" +  doc.content.succeeding[i] + "'})<-[:IDENTIFIER]-(succeeding:container) "; 
+      cypher += "MERGE (succeeding)<-[:SUCCEEDED_BY]-(c) ";
+      cypher += "RETURN issn1, issn2, c, succeeding";
+      output_cypher(doc._id, 'relationship', cypher, debug);   
+    }
+  }
+}
+
+
+//----------------------------------------------------------------------------------------
+// Output an article, with links to authors, funders, journal, citations
+// id is doc._id
+// node is the name of the node being linked to the date (e.g., "w" for a work)
+// relationship is the name of the relationship, e.g. PUBLISHED_ONLINE
+// cypher is the start of the cypher that contains query to match the node
+// date is an array [year, month, day] of the date parts
+// debug is flag for browser versus couchdb
+function cypher_date(id, node, relationship, cypher, date, debug) {
+  if (date.length > 0) {
+    cypher += 'MERGE (y:Year {id:' + date[0] + '}) ';
+    if (date.length == 1) {
+      // we have only the year
+      cypher += 'MERGE (' + node + ')-[:' + relationship + ']->(y) ';
+      cypher += 'RETURN y, ' + node;
+    } else {
+      cypher += 'MERGE (y)<-[:PART_OF]-(m:Month {id:' + date[1] + '}) ';
+      if (date.length == 2) {
+        // we have only the year and the month
+        cypher += 'MERGE (' + node + ')-[:' + relationship + ']->(m) ';
+        cypher += 'RETURN y, m, ' + node;
+      } else {
+        // we have year, month, day
+        cypher += 'MERGE (m)<-[:PART_OF]-(d:Day {id:' + date[2] + '}) ';
+        cypher += 'MERGE (' + node + ')-[:' + relationship + ']->(d) ';
+        cypher += 'RETURN y, m, d, ' + node;
+      }
+    }
+    output_cypher(id, 'relationship', cypher, debug);
+  }
+}
+   		
+
+//----------------------------------------------------------------------------------------
+// Output an article, with links to authors, funders, and journal
+function cypher_article(doc, debug) {
+  var article_namespace;
+  var article_identifier;
+
+  // Get default identifier for article
+  // CrossRef
+  if (doc._id.match(/dx.doi.org/)) {
+    article_namespace = 'doi';
+    article_identifier = doc.content.DOI;
+  }
+
+  // PubMed
+  if (doc._id.match(/pubmed/)) {
+    article_namespace = 'pmid';
+    article_identifier = doc.content.pmid;
+  }
+  
+  // Article is linked to identifier (indirection)
+  // MRGE creates work if it doesn't exist
+  var cypher = "MERGE (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+
+  // title
+  if (doc.content.title) {
+    cypher += set_statment("w", "title", doc.content.title[0]);
+  }
+  output_cypher(doc._id, 'node', cypher, debug);
+  
+  // Add other identifiers 
+  
+  // identifiers--------------------------------------------------------------------------
+   if (doc.content.DOI && (article_namespace != 'doi')) {   
+     cypher = "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+     cypher += "MERGE (other_id:identifier {id:'doi:" + doc.content.DOI + "'})<-[:IDENTIFIER]-(w) ";
+     cypher += "RETURN i, w, other_id ";
+     output_cypher(doc._id, 'relationship', cypher, debug);
+  } 
+  if (doc.content.pmid && (article_namespace != 'pmid')) {
+     cypher = "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+     cypher += "MERGE (other_id:identifier {id:'pmid:" + doc.content.pmid + "'})<-[:IDENTIFIER]-(w) ";
+     cypher += "RETURN i, w, other_id ";
+     output_cypher(doc._id, 'relationship', cypher, debug);
+  } 
+  if (doc.content.pmc && (article_namespace != 'pmc')) {
+     cypher = "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+     cypher += "MERGE (other_id:identifier {id:'pmc:" + doc.content.pmc + "'})<-[:IDENTIFIER]-(w) ";
+     cypher += "RETURN i, w, other_id ";
+     output_cypher(doc._id, 'relationship', cypher, debug);
+  } 
+
+  // relationships
+  /*
+  // authors------------------------------------------------------------------------------
+  if (doc.content.author) {
+    for (var i in doc.content.author) {
+
+      var name = doc.content.author[i].given + ' ' + doc.content.author[i].family;
+      var person = name_parse(name);
+
+      if (doc.content.author[i].ORCID) {
+        statements = [];
+        add_statement("orcid", doc.content.author[i].ORCID);
+        cypher = "MERGE (p:person {" + statements.join(",") + "})";
+
+        cypher += set_statment("p", "name", person.name);
+        cypher += set_statment("p", "fingerprint", person.fingerprint);
+
+        output_cypher(doc._id, 'node', cypher, debug);
+
+        // relationship
+        // link
+        statements = [];
+        add_statement("orcid", doc.content.author[i].ORCID);
+        cypher = "MATCH (p:person {" + statements.join(",") + "}) ";
+
+        statements = [];
+        add_statement(article_namespace, article_identifier);
+
+        cypher += "MATCH (w:work {" + statements.join(",") + "}) ";
+        cypher += "MERGE (w)-[:AUTHOR]->(p) ";
+        cypher += "RETURN w, p";
+
+        output_cypher(doc._id, 'relationship', cypher, debug);
+
+      } else {
+        statements = [];
+        add_statement("fingerprint", person.fingerprint);
+        cypher = "MERGE (p:person {" + statements.join(",") + "})";
+
+        cypher += set_statment("p", "name", person.name);
+
+        output_cypher(doc._id, 'node', cypher, debug);
+
+        // relationship
+        // link
+        statements = [];
+        add_statement("fingerprint", person.fingerprint);
+        cypher = "MATCH (p:person {" + statements.join(",") + "}) ";
+
+        statements = [];
+        add_statement(article_namespace, article_identifier);
+
+        cypher += "MATCH (w:work {" + statements.join(",") + "}) ";
+        cypher += "MERGE (w)-[:AUTHOR]->(p) ";
+        cypher += "RETURN w, p";
+
+        output_cypher(doc._id, 'relationship', cypher, debug);
+      }
+    }
+  }
+  */
+  
+  /*
+
+  // funders------------------------------------------------------------------------------
+  if (doc.content.funder) {
+    for (var i in doc.content.funder) {
+      if (doc.content.funder[i].DOI) {
+        statements = [];
+        add_statement("doi", doc.content.funder[i].DOI);
+
+        cypher = "MERGE (o:organisation {" + statements.join(",") + "})";
+
+        if (doc.content.funder[i].name) {
+          cypher += set_statment("o", "name", doc.content.funder[i].name);
+        }
+
+        output_cypher(doc._id, 'node', cypher, debug);
+
+        // relationship
+        statements = [];
+        add_statement("doi", doc.content.funder[i].DOI);
+        cypher = "MATCH (o:organisation {" + statements.join(",") + "}) ";
+
+        statements = [];
+        add_statement(article_namespace, article_identifier);
+
+        cypher += "MATCH (w:work {" + statements.join(",") + "}) ";
+
+        cypher += "MERGE (o)-[:FUNDED]->(w) ";
+        cypher += "RETURN o, w";
+
+        output_cypher(doc._id, 'relationship', cypher, debug);
+      }
+    }
+  }
+  */
+
+  
+  // container (e.g., journal)------------------------------------------------------------
+  if (doc.content.ISSN) {
+    var first_issn = ''
+    for (var i in doc.content.ISSN) {
+      // journal
+      if (first_issn == '') {
+        // create journal for first ISSN
+      	cypher = "MERGE (issn:identifier {id:'issn:" +  doc.content.ISSN[i] + "'})<-[:IDENTIFIER]-(c:container) "; 
+      	output_cypher(doc._id, 'node', cypher, debug);
+      	
+        cypher = "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+        cypher += "MATCH (issn:identifier {id:'issn:" +  doc.content.ISSN[i] + "'})<-[:IDENTIFIER]-(c:container) "; 
+        cypher += "MERGE (w)-[:IS_PART_OF]->(c) ";
+        if (doc.content['container-title']) {
+          var max_length = 0;
+          var name = '';
+          for (var j in doc.content['container-title']) {
+            if (doc.content['container-title'][j].length > max_length) {
+              name = doc.content['container-title'][j];
+              max_length = doc.content['container-title'][j].length;
+            }
+          }
+          cypher += set_statment("c", "name", name);
+        }
+        
+        cypher += "RETURN i, w, c, issn ";
+        output_cypher(doc._id, 'relationship', cypher, debug);
+      	
+      	first_issn = doc.content.ISSN[i];
+      } else {
+        // create another ISSN linked to journal.
+      	cypher = "MERGE (issn:identifier {id:'issn:" +  doc.content.ISSN[i] + "'}) "; 
+      	output_cypher(doc._id, 'node', cypher, debug);
+      	
+        cypher = "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+        cypher += "MATCH (issn1:identifier {id:'issn:" +  first_issn + "'})<-[:IDENTIFIER]-(c:container) "; 
+        cypher += "MATCH (issn2:identifier {id:'issn:" +  doc.content.ISSN[i] + "'}) "; 
+        cypher += "MERGE (issn2)<-[:IDENTIFIER]-(c) ";
+        cypher += "RETURN i, issn1, issn2, c ";
+        
+        output_cypher(doc._id, 'relationship', cypher, debug);
+      }
+    }
+  }
+   
+  // date published online----------------------------------------------------------------
+  if (doc.content['published-online']) {
+    // Set up node for work
+    cypher = "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+    // create link between work and date tree
+    cypher_date(doc._id, 'w', 'PUBLISHED_ONLINE', cypher, doc.content['published-online']['date-parts'][0], debug);
+  }
+  
+  
+  // date published ----------------------------------------------------------------------
+  if (doc.content['issued']) {
+    // Set up node for work
+    cypher = "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+    // create link between work and date tree
+    cypher_date(doc._id, 'w', 'PUBLISHED', cypher, doc.content['issued']['date-parts'][0], debug);
+  }
+  
+  
+  
+  // citation network---------------------------------------------------------------------
+  if (doc.content.cites) {
+    for (var i in doc.content.cites) {
+      // identifier
+	  var id = doc.content.cites[i];
+	  
+	  var cite_namespace = '';
+	  var cite_identifier = '';
+	  
+	  if (id.match(/http:\/\/www.ncbi.nlm.nih.gov\/pubmed\//)) {
+	    cite_namespace = 'pmid';
+	    cite_identifier = id.replace(/http:\/\/www.ncbi.nlm.nih.gov\/pubmed\//, '');
+	  }
+	  
+	  if (cite_namespace != '') {
+        cypher = "MERGE (cite_identifier:identifier {id:'" + cite_namespace + ":" + cite_identifier + "'})<-[:IDENTIFIER]-(c:work) ";
+        cypher += "RETURN cite_identifier, c ";
+        output_cypher(doc._id, 'node', cypher, debug);
+        
+        // link to work
+        cypher = "MATCH (cite_identifier:identifier {id:'" + cite_namespace + ":" + cite_identifier + "'})<-[:IDENTIFIER]-(c:work) ";
+        cypher += "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+        cypher += "MERGE (w)-[:CITES]->(c) ";
+        
+        output_cypher(doc._id, 'relationship', cypher, debug);
+      }
+  	}
+  }
+  
+  if (doc.content.cited_by) {
+    for (var i in doc.content.cited_by) {
+      // identifier
+	  var id = doc.content.cited_by[i];
+	  
+	  var cite_namespace = '';
+	  var cite_identifier = '';
+	  
+	  if (id.match(/http:\/\/www.ncbi.nlm.nih.gov\/pubmed\//)) {
+	    cite_namespace = 'pmid';
+	    cite_identifier = id.replace(/http:\/\/www.ncbi.nlm.nih.gov\/pubmed\//, '');
+	  }
+	  
+	  if (cite_namespace != '') {
+        cypher = "MERGE (cite_identifier:identifier {id:'" + cite_namespace + ":" + cite_identifier + "'})<-[:IDENTIFIER]-(c:work) ";
+        cypher += "RETURN cite_identifier, c ";
+        output_cypher(doc._id, 'node', cypher, debug);
+        
+        // link to work (opposite direction to cites)
+        cypher = "MATCH (cite_identifier:identifier {id:'" + cite_namespace + ":" + cite_identifier + "'})<-[:IDENTIFIER]-(c:work) ";
+        cypher += "MATCH (i:identifier {id:'" + article_namespace + ":" + article_identifier + "'})<-[:IDENTIFIER]-(w:work) ";
+        cypher += "MERGE (w)<-[:CITES]-(c) ";
+        
+        output_cypher(doc._id, 'relationship', cypher, debug);
+      }
+  	}
+  }
+  
+  
+
+}
+
+
+
+// cypher
+
+if (doc.content) {
+  // article (from CrossRef)
+  if (doc.content.DOI) {
+    cypher_article(doc, debug);
+        
+  }
+  // journal (from WorldCat)
+  if (doc.content.issnl) {
+    cypher_journal(doc, debug);
+  }
+}
+
+    
+
+
+
+
+
+
+</script>
+
+
+
+</body>
+</html>
