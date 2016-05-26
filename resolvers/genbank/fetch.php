@@ -528,8 +528,10 @@ function genbank_xml_to_json($xml)
 			$obj = new stdclass;
 		
 			$obj->accession = $GBSet->GBSeq_primary_accession;
-			
 			$obj->accession_version = $GBSet->GBSeq_accession_version;
+			
+			$obj->identification = new stdclass;
+			$obj->source = new stdclass;
 			
 			$obj->links = array();	
 			
@@ -567,8 +569,8 @@ function genbank_xml_to_json($xml)
 									// NCBI taxonomy
 									if (preg_match('/taxon:(?<id>\d+)$/', $feature_quals->GBQualifier_value, $m))
 									{
-										$obj->taxonID = $m['id'];
-										$obj->links[] = 'http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=' . $obj->taxonID ;			
+										$obj->identification->taxonID = $m['id'];
+										$obj->links[] = 'http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=' . $m['id'] ;			
 									}
 									
 									// DNA barcode
@@ -601,24 +603,24 @@ function genbank_xml_to_json($xml)
 									break;
 									
 								case 'identified_by':
-									$obj->identifiedBy = $feature_quals->GBQualifier_value;
+									$obj->identification->identifiedBy = $feature_quals->GBQualifier_value;
 									break;
 
 								case 'organism':
-									$obj->organism = $feature_quals->GBQualifier_value;
+									$obj->identification->organism = $feature_quals->GBQualifier_value;
 									break;
 									
 								case 'collection_date':
-									$obj->verbatimEventDate = $feature_quals->GBQualifier_value;
+									$obj->source->verbatimEventDate = $feature_quals->GBQualifier_value;
 									break;
 									
 								case 'isolate':
-									$obj->recordNumber = $feature_quals->GBQualifier_value;
+									$obj->source->recordNumber = $feature_quals->GBQualifier_value;
 									break;
 									
 								case 'specimen_voucher':
 									//echo $feature_quals->GBQualifier_value . "\n";
-									$obj->otherCatalogNumbers[] = $feature_quals->GBQualifier_value;
+									$obj->source->otherCatalogNumbers[] = $feature_quals->GBQualifier_value;
 								
 									// Try to interpret them
 									$matched = false;
@@ -628,8 +630,8 @@ function genbank_xml_to_json($xml)
 									{
 										if (preg_match('/^(?<institutionCode>(?<prefix>[A-Z]+)\<[A-Z]+\>)(?<catalogNumber>\d+)$/', $feature_quals->GBQualifier_value, $m))
 										{
-											$obj->institutionCode 	=  $m['institutionCode'];
-											$obj->catalogNumber 	=  $m['catalogNumber'];
+											$obj->source->institutionCode 	=  $m['institutionCode'];
+											$obj->source->catalogNumber 	=  $m['catalogNumber'];
 											$matched = true;
 										}
 									}
@@ -639,9 +641,9 @@ function genbank_xml_to_json($xml)
 									{
 										if (preg_match('/^(?<institutionCode>[A-Z]+):(?<collectionCode>.*):(?<catalogNumber>\d+)$/', $feature_quals->GBQualifier_value, $m))
 										{
-											$obj->institutionCode 	= $m['institutionCode'];
-											$obj->collectionCode 	= $m['collectionCode'];
-											$obj->catalogNumber 	= $m['catalogNumber'];
+											$obj->source->institutionCode 	= $m['institutionCode'];
+											$obj->source->collectionCode 	= $m['collectionCode'];
+											$obj->source->catalogNumber 	= $m['catalogNumber'];
 											$matched = true;
 										}
 									}
@@ -650,14 +652,14 @@ function genbank_xml_to_json($xml)
 									{
 										if (preg_match('/^(?<institutionCode>[A-Z]+)[\s|:]?(?<catalogNumber>\d+)$/', $feature_quals->GBQualifier_value, $m))
 										{
-											$obj->institutionCode 	=  $m['institutionCode'];
-											$obj->catalogNumber 	=  $m['catalogNumber'];
+											$obj->source->institutionCode 	=  $m['institutionCode'];
+											$obj->source->catalogNumber 	=  $m['catalogNumber'];
 											
 											// post process to help matching
 											switch ($m['institutionCode'])
 											{
 												case 'KUNHM':
-													$obj->otherCatalogNumbers[] = 'KU' .  ' ' . $m['catalogNumber'];
+													$obj->source->otherCatalogNumbers[] = 'KU' .  ' ' . $m['catalogNumber'];
 													break;
 													
 												default:
@@ -828,12 +830,14 @@ function genbank_xml_to_json($xml)
 			}
 			
 			
-			print_r($obj);
+			$objects[] = $obj;
 
 	
 		}
 		
 	}
+	
+	return $objects;
 
 }
 
@@ -848,11 +852,11 @@ function genbank_fetch($id)
 		'db' 		=> 'nucleotide',
 		'id'		=> $id,
 		'rettype'	=> 'gb',
-		'retmode'	=> 'xml'
+		'retmode'	=> 'xml',
 		
-		// skip sequences so that we don't baff over genomes
-		//'seq_start'	=> 1,
-		//'seq_stop'	=> 1
+		// skip sequences so that we don't barf over genomes
+		'seq_start'	=> 1,
+		'seq_stop'	=> 1
 	);
 	
 	$url = 'http://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?' . http_build_query($parameters);
@@ -865,14 +869,23 @@ function genbank_fetch($id)
 	
 	if ($xml != '')
 	{
-		genbank_xml_to_json($xml);
+		$objects = genbank_xml_to_json($xml);
 	}
+	
+	//print_r($objects);
+	
+	$data = new stdclass;
+	if (count($objects) > 0)
+	{
+		$data->content = $objects[0];
+	}
+	return $data;
 
 }
 	
 //----------------------------------------------------------------------------------------
 
-if (0)
+if (1)
 {
 	//genbank_fetch('DQ381473');
 	
@@ -888,16 +901,25 @@ if (0)
 	//$accession = 'AM779676';
 	
 	//$accession = 'HM067338'; //Limnonectes cf. kuhlii 'lineage 9', CAS 235132, georeferenced in GBIF
-	genbank_fetch($accession);
+	
+	$accession = 'EU139271.1';
+	$data = genbank_fetch($accession);
+	print_r($data->content);
 	
 }
 
-if (1)
+if (0)
 {
 	// JN270496
 	$xml = file_get_contents('JQ173912.xml');
 	//$xml = file_get_contents('JN270496.xml');
-	genbank_xml_to_json($xml);
+	$objects = genbank_xml_to_json($xml);
+	$data = new stdclass;
+	if (count($objects) > 0)
+	{
+		$data->content = $objects[0];
+	}
+	print_r($data->content);
 	
 }
 

@@ -3,10 +3,10 @@
 // Resolve one object
 require_once (dirname(__FILE__) . '/couchsimple.php');
 require_once (dirname(__FILE__) . '/resolvers/crossref/fetch.php');
+require_once (dirname(__FILE__) . '/resolvers/genbank/fetch.php');
 require_once (dirname(__FILE__) . '/resolvers/orcid/fetch.php');
 require_once (dirname(__FILE__) . '/resolvers/pubmed/fetch.php');
 require_once (dirname(__FILE__) . '/resolvers/worldcat/fetch.php');
-
 
 //----------------------------------------------------------------------------------------
 // Classify URL link
@@ -30,6 +30,22 @@ function classify_url($url)
 		$identifier->id =  $m['orcid'];
 	}
 	
+	// ISSN (WorldCat)
+	if (preg_match('/http[s]?:\/\/www.worldcat.org\/issn\/(?<issn>[0-9]{4}-[0-9]{3}([0-9]|X))$/', $url, $m))
+	{
+		$identifier = new stdclass;
+		$identifier->namespace = 'ISSN';
+		$identifier->id = $m['issn'];
+	}	
+	
+	// NCBI GenBank gi
+	if (preg_match('/http[s]?:\/\/www.ncbi.nlm.nih.gov\/nucore\/(?<id>\d+)$/', $url, $m))
+	{
+		$identifier = new stdclass;
+		$identifier->namespace = 'GI';
+		$identifier->id = $m['id'];
+	}
+	
 	// PubMed PMID
 	if (preg_match('/http[s]?:\/\/www.ncbi.nlm.nih.gov\/pubmed\/(?<pmid>\d+)$/', $url, $m))
 	{
@@ -37,37 +53,6 @@ function classify_url($url)
 		$identifier->namespace = 'PMID';
 		$identifier->id = $m['pmid'];
 	}
-	
-	// ISSN (WorldCat)
-	if (preg_match('/http[s]?:\/\/www.worldcat.org\/issn\/(?<issn>[0-9]{4}-[0-9]{3}([0-9]|X))$/', $url, $m))
-	{
-		$identifier = new stdclass;
-		$identifier->namespace = 'ISSN';
-		$identifier->id = $m['issn'];
-	}
-	
-	/*	
-	if (!$identifier)
-	{
-		if (preg_match('/^(ORCID:)?(?<orcid>([0-9]{4})(-[0-9A-Z]{4}){3})$/i', $id, $m))
-		{
-			$identifier = new stdclass;
-			$identifier->namespace = 'ORCID';
-			$identifier->id =  $m['orcid'];
-		}
-	}
-	
-	if (!$identifier)
-	{
-		if (preg_match('/^(PMID:)?(?<pmid>\d+)$/i', $id, $m))
-		{
-			$identifier = new stdclass;
-			$identifier->namespace = 'PMID';
-			$identifier->id = $m['pmid'];
-		}
-	}
-	*/
-	
 	
 	
 	return $identifier;
@@ -87,6 +72,10 @@ function resolve_url($url)
 		{	
 			case 'DOI':
 				$data = crossref_fetch($identifier->id);
+				break;
+
+			case 'GI':
+				$data = genbank_fetch($identifier->id);
 				break;
 				
 			case 'ISSN':
