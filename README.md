@@ -70,7 +70,7 @@ OPTIONAL MATCH (n)-[r]-()
 DELETE n,r
 ```
 
-If graph is very big then delete databas eitself from command line
+If graph is very big then delete database itself from command line:
 
 ```
 rm -r data/graph.db
@@ -78,9 +78,13 @@ rm -r data/graph.db
 
 #### Show all schema
 
+Useful if e want to see what constraints are in effect.
+
 ```
 :schema
 ```
+
+
 #### Show everything in the graph
 
 ```
