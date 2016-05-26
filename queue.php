@@ -59,6 +59,7 @@ function fetch($item)
 		// if we have content, update object with content, which will remove it from the queue
 		if (isset($data->content))
 		{
+			// Think about how many, if any, links from this item we put in the queue
 			/*
 			// add any links in this object to the queue
 			if (isset($data->links))
@@ -143,8 +144,19 @@ function dequeue($n = 5, $descending = false)
 		
 }
 
-//enqueue ('http://dx.doi.org/10.1080/00222934908526725');
-//enqueue('http://dx.doi.org/10.3897/BDJ.4.e7386');
+//----------------------------------------------------------------------------------------
+// Load one item directly into database without waiting for queue
+function load_url($url)
+{
+	// Ensure item is in the queue 
+	enqueue($url);
+	// simulate the result of a CouchDB query
+	$item = new stdclass;
+	$item->value = $url;
+	// fetch the item
+	fetch($item);
+}
+
 
 // eLife article
 //enqueue('http://dx.doi.org/10.7554/eLife.08347');
@@ -161,41 +173,15 @@ function dequeue($n = 5, $descending = false)
 //enqueue('http://dx.doi.org/10.1186/s40529-015-0087-5');
 //enqueue('http://dx.doi.org/10.11646/phytotaxa.222.2.1');
 
-//enqueue('http://dx.doi.org/10.3897/phytokeys.44.7993');
-//enqueue('http://www.ncbi.nlm.nih.gov/pubmed/21605690');
-//enqueue('http://www.worldcat.org/issn/1313-2970');
+// Force load
+$url = 'http://www.ncbi.nlm.nih.gov/nucore/359280095';
+load_url($url);
 
-enqueue('http://dx.doi.org/10.3897/zookeys.324.5827');
+/*
+// Normal operation
+enqueue(x);
+dequeue();
+*/
 
-enqueue('http://www.ncbi.nlm.nih.gov/pubmed/12125878');
-
-// force fetch
-
-$item = new stdclass;
-$item->value = 'http://www.ncbi.nlm.nih.gov/pubmed/21653447';
-
-$item->value = 'http://www.ncbi.nlm.nih.gov/pubmed/27058864';
-
-$item->value = 'http://www.ncbi.nlm.nih.gov/pubmed/21605690';
-$item->value = 'http://www.ncbi.nlm.nih.gov/pubmed/26346718';
-
-$item->value = 'http://www.worldcat.org/issn/1313-2970'; // ZooKeys online
-
-$item->value = 'http://dx.doi.org/10.3897/zookeys.324.5827';
-
-$item->value = 'http://dx.doi.org/10.7554/eLife.08347';
-$item->value = 'http://www.ncbi.nlm.nih.gov/pubmed/12125878';
-
-
-enqueue('http://www.ncbi.nlm.nih.gov/pubmed/24315868');
-$item->value = 'http://www.ncbi.nlm.nih.gov/pubmed/24315868';
-
-
-fetch($item);
-
-
-//dequeue(1, true);
-
-//dequeue(5,true);
 
 ?>
