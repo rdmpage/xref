@@ -1,0 +1,68 @@
+<?php
+
+// $Id: //
+
+/**
+ * @file config.php
+ *
+ * Global configuration variables (may be added to by other modules).
+ *
+ */
+
+global $config;
+
+// Date timezone
+date_default_timezone_set('UTC');
+
+
+// Proxy settings for connecting to the web----------------------------------------------- 
+// Set these if you access the web through a proxy server. 
+$config['proxy_name'] 	= '';
+$config['proxy_port'] 	= '';
+
+//$config['proxy_name'] 	= 'wwwcache.gla.ac.uk';
+//$config['proxy_port'] 	= '8080';
+
+$config['cache_dir']	= dirname(__FILE__) . '/resolvers/cache';
+$config['cache_time']	= 0;
+
+// CouchDB--------------------------------------------------------------------------------
+	
+// local
+$config['couchdb_options'] = array(
+		'database' => 'xref',
+		'host' => 'localhost',
+		'port' => 5984,
+		'prefix' => 'http://'
+		);		
+	
+
+// HTTP proxy
+if ($config['proxy_name'] != '')
+{
+	if ($config['couchdb_options']['host'] != 'localhost')
+	{
+		$config['couchdb_options']['proxy'] = $config['proxy_name'] . ':' . $config['proxy_port'];
+	}
+}
+
+$config['stale'] = true;
+
+// Neo4j----------------------------------------------------------------------------------
+// Docker
+$config['neo4j_options'] = array(
+		'username' => 'neo4j',
+		'password' => PASSWORD,
+		'protocol' => 'http',
+		'host' => '192.168.99.100',
+		'port' => 32768
+		);
+
+// Local
+$config['neo4j_options'] = array(
+		'protocol' => 'http',
+		'host' => 'localhost',
+		'port' => 7474
+		);
+	
+?>
