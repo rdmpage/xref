@@ -527,20 +527,49 @@ function genbank_xml_to_json($xml)
 		{		
 			$obj = new stdclass;
 		
-			$obj->accession = $GBSet->GBSeq_primary_accession;
-			$obj->accession_version = $GBSet->GBSeq_accession_version;
+			$obj->sequence = new stdclass;
+			
+			$obj->sequence->accession = $GBSet->GBSeq_primary_accession;
+			$obj->sequence->accession_version = $GBSet->GBSeq_accession_version;
+			$obj->version = str_replace($obj->sequence->accession, '', $obj->sequence->accession_version);
 			
 			$obj->identification = new stdclass;
-			$obj->source = new stdclass;
+			$obj->sample = new stdclass;
 			
 			$obj->links = array();	
 			
+			
+			// dates
+			if (false != strtotime($GBSet->GBSeq_update_date))
+			{
+				$obj->update_date = parse_ncbi_date($GBSet->GBSeq_update_date);
+			}	
+			if (false != strtotime($GBSet->GBSeq_create_date))
+			{
+				$obj->create_date = parse_ncbi_date($GBSet->GBSeq_create_date);
+			}
+						
 			// other ids
 			foreach ($GBSet->GBSeq_other_seqids as $seqids)
 			{
 				if (preg_match('/gi\|(?<gi>\d+)$/', $seqids, $m))
 				{
-					$obj->gi = $m['gi'];
+					$obj->sequence->gi = $m['gi'];
+				}
+			}			
+			
+			// keywords
+			if (isset($GBSet->GBSeq_keywords))
+			{
+				$obj->keywords = array();
+				foreach ($GBSet->GBSeq_keywords as $k => $v)
+				{
+					$obj->keywords[] = $v;
+					
+					if ($v == 'BARCODE')
+					{
+						$obj->sequence->barcode = true;
+					}
 				}
 			}
 			
@@ -583,7 +612,7 @@ function genbank_xml_to_json($xml)
 									}
 									break;
 									
-								// Locality
+								// Locality-----------------------------------------------
 								case 'country':
 								case 'locality':
 									if (!isset($obj->locality))
@@ -602,25 +631,76 @@ function genbank_xml_to_json($xml)
 									process_lat_lon($obj->locality, $feature_quals->GBQualifier_value);
 									break;
 									
+								// Identification-----------------------------------------
 								case 'identified_by':
 									$obj->identification->identifiedBy = $feature_quals->GBQualifier_value;
-									break;
+									break;									
 
 								case 'organism':
 									$obj->identification->organism = $feature_quals->GBQualifier_value;
 									break;
 									
+								// Event -------------------------------------------------
 								case 'collection_date':
-									$obj->source->verbatimEventDate = $feature_quals->GBQualifier_value;
+									if (!isset($obj->event))
+									{
+										$obj->event = new stdclass;
+									}
+									$obj->event->verbatimEventDate = $feature_quals->GBQualifier_value;
+									
+									// day month year
+									if (preg_match('/^[0-9]{2}-[A-Z][a-z]{2}-[0-9]{4}$/', $feature_quals->GBQualifier_value))
+									{
+										if (false != strtotime($feature_quals->GBQualifier_value))
+										{
+											$obj->event->eventDate = parse_ncbi_date($feature_quals->GBQualifier_value);
+										}
+									}
+									
+									// month year
+									if (preg_match('/^[A-Z][a-z]{2}-[0-9]{4}$/', $feature_quals->GBQualifier_value))
+									{
+										if (false != strtotime($feature_quals->GBQualifier_value))
+										{
+											$obj->event->eventDate = explode("-", date("Y-n", strtotime($feature_quals->GBQualifier_value)));
+										}
+									}
+
+									// Year only
+									if (preg_match('/^[0-9]{4}$/', $feature_quals->GBQualifier_value))
+									{
+										$obj->event->eventDate[] = $feature_quals->GBQualifier_value;
+									}
+									break;
+									
+								// Sample-------------------------------------------------
+								case 'clone':
+									$obj->sample->clone = $feature_quals->GBQualifier_value;
 									break;
 									
 								case 'isolate':
-									$obj->source->recordNumber = $feature_quals->GBQualifier_value;
+									$obj->sample->recordNumber = $feature_quals->GBQualifier_value;
+									break;
+
+								case 'isolation_source':
+									$obj->sample->isolation_source = $feature_quals->GBQualifier_value;
+									break;
+									
+								case 'environmental_sample':
+									$obj->sample->environmental_sample = true;
+									break;
+
+								case 'note':
+									$obj->sample->note = $feature_quals->GBQualifier_value;
+									break;
+									
+								case 'organelle':
+									$obj->sample->organelle = $feature_quals->GBQualifier_value;
 									break;
 									
 								case 'specimen_voucher':
 									//echo $feature_quals->GBQualifier_value . "\n";
-									$obj->source->otherCatalogNumbers[] = $feature_quals->GBQualifier_value;
+									$obj->sample->otherCatalogNumbers[] = $feature_quals->GBQualifier_value;
 								
 									// Try to interpret them
 									$matched = false;
@@ -630,20 +710,19 @@ function genbank_xml_to_json($xml)
 									{
 										if (preg_match('/^(?<institutionCode>(?<prefix>[A-Z]+)\<[A-Z]+\>)(?<catalogNumber>\d+)$/', $feature_quals->GBQualifier_value, $m))
 										{
-											$obj->source->institutionCode 	=  $m['institutionCode'];
-											$obj->source->catalogNumber 	=  $m['catalogNumber'];
+											$obj->sample->institutionCode 	=  $m['institutionCode'];
+											$obj->sample->catalogNumber 	=  $m['catalogNumber'];
 											$matched = true;
 										}
 									}
-									
-									
+																		
 									if (!$matched)
 									{
 										if (preg_match('/^(?<institutionCode>[A-Z]+):(?<collectionCode>.*):(?<catalogNumber>\d+)$/', $feature_quals->GBQualifier_value, $m))
 										{
-											$obj->source->institutionCode 	= $m['institutionCode'];
-											$obj->source->collectionCode 	= $m['collectionCode'];
-											$obj->source->catalogNumber 	= $m['catalogNumber'];
+											$obj->sample->institutionCode 	= $m['institutionCode'];
+											$obj->sample->collectionCode 	= $m['collectionCode'];
+											$obj->sample->catalogNumber 	= $m['catalogNumber'];
 											$matched = true;
 										}
 									}
@@ -652,14 +731,14 @@ function genbank_xml_to_json($xml)
 									{
 										if (preg_match('/^(?<institutionCode>[A-Z]+)[\s|:]?(?<catalogNumber>\d+)$/', $feature_quals->GBQualifier_value, $m))
 										{
-											$obj->source->institutionCode 	=  $m['institutionCode'];
-											$obj->source->catalogNumber 	=  $m['catalogNumber'];
+											$obj->sample->institutionCode 	=  $m['institutionCode'];
+											$obj->sample->catalogNumber 	=  $m['catalogNumber'];
 											
 											// post process to help matching
 											switch ($m['institutionCode'])
 											{
 												case 'KUNHM':
-													$obj->source->otherCatalogNumbers[] = 'KU' .  ' ' . $m['catalogNumber'];
+													$obj->sample->otherCatalogNumbers[] = 'KU' .  ' ' . $m['catalogNumber'];
 													break;
 													
 												default:
@@ -668,15 +747,43 @@ function genbank_xml_to_json($xml)
 											$matched = true;
 										}
 									}
-									break;									
-									
-									
+									break;	
 									
 								default:
 									break;
 							}
 						}
 						break;
+						
+					// Sequence-----------------------------------------------
+					case 'CDS':
+					case 'rRNA':
+						foreach ($feature_table->GBFeature_quals as $feature_quals)
+						{
+							switch ($feature_quals->GBQualifier_name)
+							{
+								case 'gene':
+									if (!isset($obj->sequence->gene))
+									{
+										$obj->sequence->gene = array();
+									}
+									$obj->sequence->gene[] = $feature_quals->GBQualifier_value;
+									break;
+
+								case 'product':
+									if (!isset($obj->sequence->product))
+									{
+										$obj->sequence->product = array();
+									}
+									$obj->sequence->product[] = $feature_quals->GBQualifier_value;
+									break;
+
+								default:
+									break;
+							}					
+						}						
+						break;
+						
 						
 					default:
 						break;
@@ -895,14 +1002,26 @@ if (1)
 	$accession = 'GU224788';
 	$accession = 'DQ650615';
 	$accession = 'HQ733947';
-	//$accession = 'KF185038';
+	$accession = 'KF185038';
 	
-	$accession = 'FR686779'; // georeferenced, citation needs DOI
+	//$accession = 'FR686779'; // georeferenced, citation needs DOI
 	//$accession = 'AM779676';
 	
 	//$accession = 'HM067338'; //Limnonectes cf. kuhlii 'lineage 9', CAS 235132, georeferenced in GBIF
 	
-	$accession = 'EU139271.1';
+	//$accession = 'EU139271.1';
+	
+	$accession = 'AB332438'; // plankton sample
+	
+	$accession = 'KP420745'; //Little Barrier next gen
+	$accession = 'AB333773';
+	
+	$accession = 'GQ260888'; // barcode crustacean
+	
+	$accession = 'AJ556909'; // in press, actually published in BioStor http://biostor.org/reference/144878
+	
+	$accession = 'JN106060'; // holotype specimen, see http://iphylo.blogspot.co.uk/2014/01/ncbi-taxonomy-database-now-shows-type.html
+	
 	$data = genbank_fetch($accession);
 	print_r($data->content);
 	
@@ -913,6 +1032,8 @@ if (0)
 	// JN270496
 	$xml = file_get_contents('JQ173912.xml');
 	//$xml = file_get_contents('JN270496.xml');
+	
+	//echo $xml;
 	$objects = genbank_xml_to_json($xml);
 	$data = new stdclass;
 	if (count($objects) > 0)
