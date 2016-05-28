@@ -6,6 +6,23 @@ require_once (dirname(dirname(dirname(__FILE__))) . '/utilities/lib.php');
 require_once (dirname(dirname(dirname(__FILE__))) . '/utilities/nameparse.php');
 
 //----------------------------------------------------------------------------------------
+// Convert NCBI style date (e.g., "07-OCT-2015") to array
+function parse_ncbi_date($date_string)
+{
+	$date_array = array();
+	
+	if (false != strtotime($date_string))
+	{
+		// format without leading zeros
+		$ymd = date("Y-n-j", strtotime($date_string));
+		
+		$date_array = explode('-', $ymd);		
+	}	
+	
+	return $date_array;
+}
+
+//----------------------------------------------------------------------------------------
 function doi_to_pmid($doi)
 {
 	$pmid = 0;
